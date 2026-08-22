@@ -71,6 +71,7 @@ data class GitHubAsset(
 @Serializable
 data class GitHubRelease(
     val tag_name: String,
+    val name: String = "",
     val body: String = "",
     val assets: List<GitHubAsset> = emptyList()
 )
@@ -220,8 +221,13 @@ fun HydroPairApp() {
                     val body = response.bodyAsText()
                     val release = json.decodeFromString<GitHubRelease>(body)
                     val apkAsset = release.assets.find { it.name.endsWith(".apk") }
-                    if (release.tag_name != currentVersionName && apkAsset != null) {
+                    val releaseVersion = if (release.tag_name.startsWith("v")) release.tag_name else release.name.ifBlank { release.tag_name }
+                    val isNewer = releaseVersion != currentVersionName && release.tag_name != currentVersionName
+
+                    if (isNewer && apkAsset != null) {
                         updateAvailableRelease = release
+                    } else if (isNewer && apkAsset == null && showToastIfLatest) {
+                        Toast.makeText(context, "Found $releaseVersion on GitHub, but no .apk file was attached to release assets!", Toast.LENGTH_LONG).show()
                     } else if (showToastIfLatest) {
                         Toast.makeText(context, "You are on the latest version ($currentVersionName)!", Toast.LENGTH_SHORT).show()
                     }
