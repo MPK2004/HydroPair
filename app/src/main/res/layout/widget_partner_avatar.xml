@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_avatar_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/widget_background">
+
+    <TextView
+        android:id="@+id/widget_partner_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="👫 Partner Activity"
+        android:textColor="#06B6D4"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <ImageView
+        android:id="@+id/widget_avatar_image"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scaleType="fitCenter"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/widget_status_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Partner is idle"
+        android:textColor="#F8FAFC"
+        android:textSize="12sp"
+        android:gravity="center" />
+
+    <Button
+        android:id="@+id/widget_btn_reply"
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="6dp"
+        android:text="I Drank Water! 💧"
+        android:textSize="12sp"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#10B981" />
+</LinearLayout>
