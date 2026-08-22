@@ -20,8 +20,12 @@ android {
             load(localFile.inputStream())
         }
     }
-    val supabaseUrl = localProperties.getProperty("SUPABASE_URL") ?: ""
-    val supabaseKey = localProperties.getProperty("SUPABASE_KEY") ?: ""
+    val supabaseUrl = localProperties.getProperty("SUPABASE_URL")
+        ?: System.getenv("SUPABASE_URL")
+        ?: "https://mwcwpkdntxkxgxhwtqin.supabase.co"
+    val supabaseKey = localProperties.getProperty("SUPABASE_KEY")
+        ?: System.getenv("SUPABASE_KEY")
+        ?: "sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52"
 
     defaultConfig {
         applicationId = "com.example.myapplication"
