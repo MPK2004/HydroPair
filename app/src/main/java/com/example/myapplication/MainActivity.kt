@@ -51,8 +51,27 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
+import java.io.File
+import io.ktor.client.statement.readBytes
+import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
 import java.util.*
+
+@Serializable
+data class GitHubAsset(
+    val name: String,
+    val browser_download_url: String
+)
+
+@Serializable
+data class GitHubRelease(
+    val tag_name: String,
+    val body: String = "",
+    val assets: List<GitHubAsset> = emptyList()
+)
 
 // Custom Water App Theme Colors
 private val WaterPrimary = Color(0xFF0284C7)      // Ocean Blue
@@ -171,11 +190,96 @@ fun HydroPairApp() {
     var syncStatus by remember { mutableStateOf("Local Mode") }
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    // In-App Auto Updater State
+    val currentVersionName = "v1.0.0"
+    var updateAvailableRelease by remember { mutableStateOf<GitHubRelease?>(null) }
+    var isDownloadingUpdate by remember { mutableStateOf(false) }
+    var updateStatusText by remember { mutableStateOf("") }
+    var gitHubRepoOwner by remember { mutableStateOf(prefs.getString("github_repo_owner", "") ?: "") }
+    var gitHubRepoName by remember { mutableStateOf(prefs.getString("github_repo_name", "") ?: "") }
+
+    fun checkGitHubForUpdates(owner: String = gitHubRepoOwner, repo: String = gitHubRepoName, showToastIfLatest: Boolean = false) {
+        if (owner.isBlank() || repo.isBlank()) {
+            if (showToastIfLatest) Toast.makeText(context, "Please set GitHub Owner and Repo in Profile settings first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch {
+            try {
+                val url = "https://api.github.com/repos/$owner/$repo/releases/latest"
+                val response = withContext(Dispatchers.IO) {
+                    httpClient.get(url) {
+                        header("User-Agent", "HydroPair-App")
+                    }
+                }
+                if (response.status.isSuccess()) {
+                    val body = response.bodyAsText()
+                    val release = json.decodeFromString<GitHubRelease>(body)
+                    val apkAsset = release.assets.find { it.name.endsWith(".apk") }
+                    if (release.tag_name != currentVersionName && apkAsset != null) {
+                        updateAvailableRelease = release
+                    } else if (showToastIfLatest) {
+                        Toast.makeText(context, "You are on the latest version ($currentVersionName)!", Toast.LENGTH_SHORT).show()
+                    }
+                } else if (showToastIfLatest) {
+                    Toast.makeText(context, "No GitHub releases found for $owner/$repo.", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                if (showToastIfLatest) {
+                    Toast.makeText(context, "Could not check for updates: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun downloadAndInstallUpdate(release: GitHubRelease) {
+        val apkAsset = release.assets.find { it.name.endsWith(".apk") } ?: return
+        isDownloadingUpdate = true
+        updateStatusText = "Downloading update ${release.tag_name}..."
+
+        scope.launch {
+            try {
+                val apkFile = File(context.getExternalFilesDir(null), "HydroPair-Update.apk")
+                if (apkFile.exists()) apkFile.delete()
+
+                val bytes = withContext(Dispatchers.IO) {
+                    val response = httpClient.get(apkAsset.browser_download_url)
+                    response.readBytes()
+                }
+
+                withContext(Dispatchers.IO) {
+                    apkFile.writeBytes(bytes)
+                }
+
+                updateStatusText = "Opening package installer..."
+                isDownloadingUpdate = false
+
+                val apkUri: Uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    apkFile
+                )
+
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(installIntent)
+
+            } catch (e: Exception) {
+                isDownloadingUpdate = false
+                updateStatusText = "Update error: ${e.message}"
+                Toast.makeText(context, "Update failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     fun savePrefs() {
         prefs.edit()
             .putString("pair_code", pairCode)
             .putString("user_name", userName)
             .putInt("daily_goal_ml", dailyGoalMl)
+            .putString("github_repo_owner", gitHubRepoOwner)
+            .putString("github_repo_name", gitHubRepoName)
             .apply()
         WaterGlassWidgetProvider.updateAllWidgets(context)
         PartnerAvatarWidgetProvider.updateAllWidgets(context)
@@ -244,7 +348,7 @@ fun HydroPairApp() {
         prefs.edit().putString("last_reset_date", todayStr).apply()
     }
 
-    // Load local cache on start & perform daily midnight reset check
+    // Load local cache on start, check daily midnight reset & check GitHub for OTA updates
     LaunchedEffect(Unit) {
         val cachedJson = prefs.getString("cached_reminders", "[]") ?: "[]"
         try {
@@ -254,6 +358,7 @@ fun HydroPairApp() {
             reminders = emptyList()
         }
         checkAndResetDailyData()
+        checkGitHubForUpdates()
     }
 
     // Fetch from Supabase with fallback to local
@@ -536,17 +641,63 @@ fun HydroPairApp() {
                     pairCode = pairCode,
                     userName = userName,
                     dailyGoalMl = dailyGoalMl,
-                    onSave = { newPair, newName, newGoal ->
+                    gitHubRepoOwner = gitHubRepoOwner,
+                    gitHubRepoName = gitHubRepoName,
+                    currentVersion = currentVersionName,
+                    onSave = { newPair, newName, newGoal, newOwner, newRepo ->
                         pairCode = newPair
                         userName = newName
                         dailyGoalMl = newGoal
+                        gitHubRepoOwner = newOwner
+                        gitHubRepoName = newRepo
                         savePrefs()
                         Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
+                    },
+                    onCheckUpdates = { owner, repo ->
+                        checkGitHubForUpdates(owner, repo, showToastIfLatest = true)
                     },
                     onResetAllData = { clearAllDailyData() }
                 )
             }
         }
+    }
+
+    if (updateAvailableRelease != null) {
+        val release = updateAvailableRelease!!
+        AlertDialog(
+            onDismissRequest = { if (!isDownloadingUpdate) updateAvailableRelease = null },
+            title = { Text("🚀 Update Available (${release.tag_name})") },
+            text = {
+                Column {
+                    Text("A new version of HydroPair is ready!", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(release.body.ifBlank { "Performance improvements and bug fixes." }, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Your existing logs, settings & pair data will be preserved.", style = MaterialTheme.typography.labelSmall, color = WaterSecondary)
+                    if (isDownloadingUpdate) {
+                        Spacer(Modifier.height(12.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(4.dp))
+                        Text(updateStatusText, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !isDownloadingUpdate,
+                    onClick = { downloadAndInstallUpdate(release) }
+                ) {
+                    Text(if (isDownloadingUpdate) "Downloading..." else "Update & Install Now")
+                }
+            },
+            dismissButton = {
+                if (!isDownloadingUpdate) {
+                    TextButton(onClick = { updateAvailableRelease = null }) {
+                        Text("Later")
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -1090,7 +1241,11 @@ fun ProfileTab(
     pairCode: String,
     userName: String,
     dailyGoalMl: Int,
-    onSave: (String, String, Int) -> Unit,
+    gitHubRepoOwner: String,
+    gitHubRepoName: String,
+    currentVersion: String,
+    onSave: (String, String, Int, String, String) -> Unit,
+    onCheckUpdates: (String, String) -> Unit,
     onResetAllData: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -1098,6 +1253,8 @@ fun ProfileTab(
     var editPairCode by remember { mutableStateOf(pairCode) }
     var editUserName by remember { mutableStateOf(userName) }
     var editGoalText by remember { mutableStateOf(dailyGoalMl.toString()) }
+    var editRepoOwner by remember { mutableStateOf(gitHubRepoOwner) }
+    var editRepoName by remember { mutableStateOf(gitHubRepoName) }
 
     LazyColumn(
         modifier = Modifier
@@ -1106,7 +1263,7 @@ fun ProfileTab(
     ) {
         item {
             Text(
-                "Profile & Pair Setup",
+                "Profile & Settings",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 color = WaterOnSurface
             )
@@ -1134,27 +1291,6 @@ fun ProfileTab(
                     Text("3️⃣  Have your partner enter the same Pair Code in their app's Profile screen.", style = MaterialTheme.typography.bodySmall, color = WaterOnSurface.copy(alpha = 0.8f))
                     Spacer(Modifier.height(6.dp))
                     Text("🎉 You will now share live hydration reminders & updates!", style = MaterialTheme.typography.labelSmall, color = WaterAccentMint, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            // Widget Avatar Preview Card
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = WaterSurfaceVariant),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Face, contentDescription = null, tint = WaterPrimary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Interactive Home Screen Widget Avatar", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = WaterOnSurface)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text("• Idle State: Your character cycles through normal daily activities (Reading 📖, Gaming 🎮, Music 🎧).", style = MaterialTheme.typography.bodySmall, color = WaterOnSurface.copy(alpha = 0.85f))
-                    Spacer(Modifier.height(4.dp))
-                    Text("• Drink Water State: When your partner sends a reminder, the avatar starts drinking water 🥤 until you reply!", style = MaterialTheme.typography.bodySmall, color = WaterOnSurface.copy(alpha = 0.85f))
                 }
             }
 
@@ -1229,12 +1365,59 @@ fun ProfileTab(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    Spacer(Modifier.height(20.dp))
+                    HorizontalDivider(color = WaterSurfaceVariant)
+                    Spacer(Modifier.height(16.dp))
+
+                    Text("🚀 GitHub In-App Auto-Updates", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = WaterSecondary)
+                    Spacer(Modifier.height(6.dp))
+                    Text("App Version: $currentVersion", style = MaterialTheme.typography.bodySmall, color = WaterOnSurface.copy(alpha = 0.8f))
+                    Spacer(Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = editRepoOwner,
+                            onValueChange = { editRepoOwner = it },
+                            label = { Text("GitHub User / Org") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = editRepoName,
+                            onValueChange = { editRepoName = it },
+                            label = { Text("Repository Name") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    OutlinedButton(
+                        onClick = {
+                            val goal = editGoalText.toIntOrNull() ?: 2000
+                            onSave(editPairCode, editUserName, goal, editRepoOwner, editRepoName)
+                            onCheckUpdates(editRepoOwner, editRepoName)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp), tint = WaterPrimary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Check for In-App Updates", style = MaterialTheme.typography.labelMedium, color = WaterPrimary)
+                    }
+
                     Spacer(Modifier.height(24.dp))
 
                     Button(
                         onClick = {
                             val goal = editGoalText.toIntOrNull() ?: 2000
-                            onSave(editPairCode, editUserName, goal)
+                            onSave(editPairCode, editUserName, goal, editRepoOwner, editRepoName)
                         },
                         modifier = Modifier
                             .fillMaxWidth()
