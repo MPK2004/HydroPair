@@ -194,7 +194,10 @@ fun HydroPairApp() {
     var selectedTab by remember { mutableIntStateOf(0) }
 
     // In-App Auto Updater State
-    val currentVersionName = "v1.0.0"
+    val currentVersionName = remember {
+        val ver = BuildConfig.VERSION_NAME
+        if (ver.startsWith("v")) ver else "v$ver"
+    }
     var updateAvailableRelease by remember { mutableStateOf<GitHubRelease?>(null) }
     var isDownloadingUpdate by remember { mutableStateOf(false) }
     var updateStatusText by remember { mutableStateOf("") }
@@ -224,7 +227,9 @@ fun HydroPairApp() {
                     val releaseVersion = if (release.tag_name.startsWith("v")) release.tag_name else release.name.ifBlank { release.tag_name }
                     val isNewer = releaseVersion != currentVersionName && release.tag_name != currentVersionName
 
-                    if (isNewer && apkAsset != null) {
+                    val dismissedTag = prefs.getString("dismissed_update_tag", "") ?: ""
+
+                    if (isNewer && apkAsset != null && (release.tag_name != dismissedTag || showToastIfLatest)) {
                         updateAvailableRelease = release
                     } else if (isNewer && apkAsset == null && showToastIfLatest) {
                         Toast.makeText(context, "Found $releaseVersion on GitHub, but no .apk file was attached to release assets!", Toast.LENGTH_LONG).show()
@@ -762,7 +767,12 @@ fun HydroPairApp() {
     if (updateAvailableRelease != null) {
         val release = updateAvailableRelease!!
         AlertDialog(
-            onDismissRequest = { if (!isDownloadingUpdate) updateAvailableRelease = null },
+            onDismissRequest = {
+                if (!isDownloadingUpdate) {
+                    prefs.edit().putString("dismissed_update_tag", release.tag_name).apply()
+                    updateAvailableRelease = null
+                }
+            },
             title = { Text("🚀 Update Available (${release.tag_name})") },
             text = {
                 Column {
@@ -782,14 +792,20 @@ fun HydroPairApp() {
             confirmButton = {
                 Button(
                     enabled = !isDownloadingUpdate,
-                    onClick = { downloadAndInstallUpdate(release) }
+                    onClick = {
+                        prefs.edit().putString("dismissed_update_tag", release.tag_name).apply()
+                        downloadAndInstallUpdate(release)
+                    }
                 ) {
                     Text(if (isDownloadingUpdate) "Downloading..." else "Update & Install Now")
                 }
             },
             dismissButton = {
                 if (!isDownloadingUpdate) {
-                    TextButton(onClick = { updateAvailableRelease = null }) {
+                    TextButton(onClick = {
+                        prefs.edit().putString("dismissed_update_tag", release.tag_name).apply()
+                        updateAvailableRelease = null
+                    }) {
                         Text("Later")
                     }
                 }
