@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -12,6 +14,15 @@ android {
         }
     }
 
+    val localProperties = Properties().apply {
+        val localFile = rootProject.file("local.properties")
+        if (localFile.exists()) {
+            load(localFile.inputStream())
+        }
+    }
+    val supabaseUrl = localProperties.getProperty("SUPABASE_URL") ?: ""
+    val supabaseKey = localProperties.getProperty("SUPABASE_KEY") ?: ""
+
     defaultConfig {
         applicationId = "com.example.myapplication"
         minSdk = 24
@@ -20,6 +31,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
     }
 
     buildTypes {
@@ -37,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

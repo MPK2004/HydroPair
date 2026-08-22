@@ -297,6 +297,9 @@ fun HydroPairApp() {
         PartnerAvatarWidgetProvider.updateAllWidgets(context)
     }
 
+    val supabaseUrl = BuildConfig.SUPABASE_URL
+    val supabaseKey = BuildConfig.SUPABASE_KEY
+
     // Delete single activity log (Local + Supabase)
     fun deleteReminder(reminderId: Int) {
         val updatedList = reminders.filterNot { it.id == reminderId }
@@ -305,11 +308,11 @@ fun HydroPairApp() {
         scope.launch {
             snackbarHostState.showSnackbar("Activity log deleted 🗑️")
             try {
-                val url = "https://mwcwpkdntxkxgxhwtqin.supabase.co/rest/v1/reminders?id=eq.$reminderId"
+                val url = "$supabaseUrl/rest/v1/reminders?id=eq.$reminderId"
                 withContext(Dispatchers.IO) {
                     httpClient.delete(url) {
-                        header(HttpHeaders.Authorization, "Bearer sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
-                        header("apikey", "sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
+                        header(HttpHeaders.Authorization, "Bearer $supabaseKey")
+                        header("apikey", supabaseKey)
                     }
                 }
             } catch (e: Exception) {
@@ -324,11 +327,11 @@ fun HydroPairApp() {
         scope.launch {
             snackbarHostState.showSnackbar("Daily logs & water intake reset to 0 🔄")
             try {
-                val url = "https://mwcwpkdntxkxgxhwtqin.supabase.co/rest/v1/reminders?pair_code=eq.$pairCode"
+                val url = "$supabaseUrl/rest/v1/reminders?pair_code=eq.$pairCode"
                 withContext(Dispatchers.IO) {
                     httpClient.delete(url) {
-                        header(HttpHeaders.Authorization, "Bearer sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
-                        header("apikey", "sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
+                        header(HttpHeaders.Authorization, "Bearer $supabaseKey")
+                        header("apikey", supabaseKey)
                     }
                 }
             } catch (e: Exception) {
@@ -367,11 +370,11 @@ fun HydroPairApp() {
         scope.launch {
             isLoading = true
             try {
-                val url = "https://mwcwpkdntxkxgxhwtqin.supabase.co/rest/v1/reminders"
+                val url = "$supabaseUrl/rest/v1/reminders"
                 val response = withContext(Dispatchers.IO) {
                     httpClient.get(url) {
-                        header(HttpHeaders.Authorization, "Bearer sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
-                        header("apikey", "sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
+                        header(HttpHeaders.Authorization, "Bearer $supabaseKey")
+                        header("apikey", supabaseKey)
                         url { parameters.append("pair_code", "eq.$pairCode") }
                     }
                 }
@@ -433,12 +436,12 @@ fun HydroPairApp() {
         scope.launch {
             snackbarHostState.showSnackbar("Logged $amountMl ml water! 💧")
             try {
-                val url = "https://mwcwpkdntxkxgxhwtqin.supabase.co/rest/v1/reminders"
+                val url = "$supabaseUrl/rest/v1/reminders"
                 val payload = """{"pair_code":"$pairCode","sender":"$userName","reminder_text":"$text","sender_amount_ml":$amountMl,"reply_amount_ml":null}"""
                 withContext(Dispatchers.IO) {
                     httpClient.post(url) {
-                        header(HttpHeaders.Authorization, "Bearer sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
-                        header("apikey", "sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
+                        header(HttpHeaders.Authorization, "Bearer $supabaseKey")
+                        header("apikey", supabaseKey)
                         header("Prefer", "return=representation")
                         contentType(ContentType.Application.Json)
                         setBody(payload)
@@ -470,12 +473,12 @@ fun HydroPairApp() {
         scope.launch {
             snackbarHostState.showSnackbar("Reminder sent to partner! 🔔")
             try {
-                val url = "https://mwcwpkdntxkxgxhwtqin.supabase.co/rest/v1/reminders"
+                val url = "$supabaseUrl/rest/v1/reminders"
                 val payload = """{"pair_code":"$pairCode","sender":"$userName","reminder_text":"$reminderMessage","sender_amount_ml":$amountMl,"reply_amount_ml":null}"""
                 withContext(Dispatchers.IO) {
                     httpClient.post(url) {
-                        header(HttpHeaders.Authorization, "Bearer sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
-                        header("apikey", "sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
+                        header(HttpHeaders.Authorization, "Bearer $supabaseKey")
+                        header("apikey", supabaseKey)
                         header("Prefer", "return=representation")
                         contentType(ContentType.Application.Json)
                         setBody(payload)
@@ -498,12 +501,12 @@ fun HydroPairApp() {
         scope.launch {
             snackbarHostState.showSnackbar("Replied with $replyMl ml! 🥤")
             try {
-                val url = "https://mwcwpkdntxkxgxhwtqin.supabase.co/rest/v1/reminders?id=eq.$reminderId"
+                val url = "$supabaseUrl/rest/v1/reminders?id=eq.$reminderId"
                 val payload = """{"reply_amount_ml":$replyMl}"""
                 withContext(Dispatchers.IO) {
                     httpClient.patch(url) {
-                        header(HttpHeaders.Authorization, "Bearer sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
-                        header("apikey", "sb_publishable_x9mi15kclW1siVg-oOuL4A_9uGVOu52")
+                        header(HttpHeaders.Authorization, "Bearer $supabaseKey")
+                        header("apikey", supabaseKey)
                         contentType(ContentType.Application.Json)
                         setBody(payload)
                     }
