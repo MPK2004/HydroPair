@@ -195,14 +195,11 @@ fun HydroPairApp() {
     var updateAvailableRelease by remember { mutableStateOf<GitHubRelease?>(null) }
     var isDownloadingUpdate by remember { mutableStateOf(false) }
     var updateStatusText by remember { mutableStateOf("") }
-    var gitHubRepoOwner by remember { mutableStateOf(prefs.getString("github_repo_owner", "") ?: "") }
-    var gitHubRepoName by remember { mutableStateOf(prefs.getString("github_repo_name", "") ?: "") }
+    var gitHubRepoOwner by remember { mutableStateOf(prefs.getString("github_repo_owner", "MPK2004") ?: "MPK2004") }
+    var gitHubRepoName by remember { mutableStateOf(prefs.getString("github_repo_name", "HydroPair") ?: "HydroPair") }
 
     fun checkGitHubForUpdates(owner: String = gitHubRepoOwner, repo: String = gitHubRepoName, showToastIfLatest: Boolean = false) {
-        if (owner.isBlank() || repo.isBlank()) {
-            if (showToastIfLatest) Toast.makeText(context, "Please set GitHub Owner and Repo in Profile settings first", Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (owner.isBlank() || repo.isBlank()) return
         scope.launch {
             try {
                 val url = "https://api.github.com/repos/$owner/$repo/releases/latest"
@@ -1373,30 +1370,8 @@ fun ProfileTab(
                     Spacer(Modifier.height(16.dp))
 
                     Text("🚀 GitHub In-App Auto-Updates", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = WaterSecondary)
-                    Spacer(Modifier.height(6.dp))
-                    Text("App Version: $currentVersion", style = MaterialTheme.typography.bodySmall, color = WaterOnSurface.copy(alpha = 0.8f))
-                    Spacer(Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = editRepoOwner,
-                            onValueChange = { editRepoOwner = it },
-                            label = { Text("GitHub User / Org") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = editRepoName,
-                            onValueChange = { editRepoName = it },
-                            label = { Text("Repository Name") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
+                    Spacer(Modifier.height(4.dp))
+                    Text("Installed Version: $currentVersion • Repository: $editRepoOwner/$editRepoName", style = MaterialTheme.typography.bodySmall, color = WaterOnSurface.copy(alpha = 0.8f))
                     Spacer(Modifier.height(10.dp))
 
                     OutlinedButton(
@@ -1412,7 +1387,7 @@ fun ProfileTab(
                     ) {
                         Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp), tint = WaterPrimary)
                         Spacer(Modifier.width(8.dp))
-                        Text("Check for In-App Updates", style = MaterialTheme.typography.labelMedium, color = WaterPrimary)
+                        Text("Check for Updates Now", style = MaterialTheme.typography.labelMedium, color = WaterPrimary)
                     }
 
                     Spacer(Modifier.height(24.dp))
