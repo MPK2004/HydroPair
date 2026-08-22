@@ -13,7 +13,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationCompat
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -198,6 +200,12 @@ fun HydroPairApp() {
     var gitHubRepoOwner by remember { mutableStateOf(prefs.getString("github_repo_owner", "MPK2004") ?: "MPK2004") }
     var gitHubRepoName by remember { mutableStateOf(prefs.getString("github_repo_name", "HydroPair") ?: "HydroPair") }
 
+    // Duolingo-style Streak System State
+    var currentStreak by remember { mutableIntStateOf(prefs.getInt("current_streak", 0)) }
+    var bestStreak by remember { mutableIntStateOf(prefs.getInt("best_streak", 0)) }
+    var lastGoalMetDate by remember { mutableStateOf(prefs.getString("last_goal_met_date", "") ?: "") }
+    var streakFreezeCount by remember { mutableIntStateOf(prefs.getInt("streak_freeze_count", 1)) }
+
     fun checkGitHubForUpdates(owner: String = gitHubRepoOwner, repo: String = gitHubRepoName, showToastIfLatest: Boolean = false) {
         if (owner.isBlank() || repo.isBlank()) return
         scope.launch {
@@ -337,12 +345,29 @@ fun HydroPairApp() {
         }
     }
 
-    // Automatic midnight auto-reset check
+    // Automatic midnight auto-reset & streak evaluation check
     fun checkAndResetDailyData() {
         val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val lastReset = prefs.getString("last_reset_date", "")
 
         if (!lastReset.isNullOrBlank() && lastReset != todayStr) {
+            val calYesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+            val yesterdayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calYesterday.time)
+
+            if (lastGoalMetDate != yesterdayStr && lastGoalMetDate != todayStr) {
+                if (streakFreezeCount > 0 && currentStreak > 0) {
+                    streakFreezeCount -= 1
+                    prefs.edit().putInt("streak_freeze_count", streakFreezeCount).apply()
+                    triggerNotification(
+                        context,
+                        "🛡️ Streak Freeze Shield Activated!",
+                        "Your Streak Freeze protected your $currentStreak day streak yesterday!"
+                    )
+                } else {
+                    currentStreak = 0
+                    prefs.edit().putInt("current_streak", 0).apply()
+                }
+            }
             clearAllDailyData()
         }
         prefs.edit().putString("last_reset_date", todayStr).apply()
@@ -537,6 +562,43 @@ fun HydroPairApp() {
         }
     }
 
+    // Automatically check and extend Duolingo-style streak when daily goal is reached!
+    LaunchedEffect(todayConsumedMl, dailyGoalMl) {
+        if (todayConsumedMl >= dailyGoalMl && dailyGoalMl > 0) {
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            if (lastGoalMetDate != todayStr) {
+                val calYesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
+                val yesterdayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(calYesterday.time)
+
+                val newStreak = if (lastGoalMetDate == yesterdayStr) {
+                    currentStreak + 1
+                } else if (lastGoalMetDate.isEmpty()) {
+                    1
+                } else {
+                    currentStreak + 1
+                }
+
+                currentStreak = newStreak
+                if (newStreak > bestStreak) {
+                    bestStreak = newStreak
+                }
+                lastGoalMetDate = todayStr
+
+                prefs.edit()
+                    .putInt("current_streak", currentStreak)
+                    .putInt("best_streak", bestStreak)
+                    .putString("last_goal_met_date", lastGoalMetDate)
+                    .apply()
+
+                triggerNotification(
+                    context,
+                    "🔥 Daily Hydration Goal Reached!",
+                    "Awesome! You've extended your streak to $currentStreak days in a row! 🏆"
+                )
+            }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -564,6 +626,26 @@ fun HydroPairApp() {
                     }
                 },
                 actions = {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (currentStreak > 0) Color(0xFFFF6D00).copy(alpha = 0.15f) else WaterSurfaceVariant,
+                        border = BorderStroke(1.dp, if (currentStreak > 0) Color(0xFFFF6D00) else Color.Transparent),
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("🔥", fontSize = 15.sp)
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "$currentStreak",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (currentStreak > 0) Color(0xFFFF6D00) else WaterOnSurface.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+
                     IconButton(onClick = { syncWithCloud() }) {
                         if (isLoading) {
                             CircularProgressIndicator(
@@ -623,6 +705,15 @@ fun HydroPairApp() {
                 0 -> DashboardTab(
                     todayConsumedMl = todayConsumedMl,
                     dailyGoalMl = dailyGoalMl,
+                    currentStreak = currentStreak,
+                    bestStreak = bestStreak,
+                    lastGoalMetDate = lastGoalMetDate,
+                    streakFreezeCount = streakFreezeCount,
+                    onEquipFreeze = {
+                        streakFreezeCount = 1
+                        prefs.edit().putInt("streak_freeze_count", 1).apply()
+                        Toast.makeText(context, "🛡️ Streak Freeze equipped!", Toast.LENGTH_SHORT).show()
+                    },
                     onLogWater = { amount -> logIntake(amount, "Quick Log") }
                 )
                 1 -> ActivityTab(
@@ -702,9 +793,200 @@ fun HydroPairApp() {
 }
 
 @Composable
+fun DuolingoStreakCard(
+    currentStreak: Int,
+    bestStreak: Int,
+    todayConsumedMl: Int,
+    dailyGoalMl: Int,
+    lastGoalMetDate: String,
+    streakFreezeCount: Int,
+    onEquipFreeze: () -> Unit
+) {
+    val isGoalMetToday = todayConsumedMl >= dailyGoalMl && dailyGoalMl > 0
+    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+
+    val calendarDays = remember(todayConsumedMl, lastGoalMetDate) {
+        val cal = Calendar.getInstance()
+        cal.firstDayOfWeek = Calendar.MONDAY
+        cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+        val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+        val list = mutableListOf<Triple<String, String, Boolean>>()
+        for (i in 0 until 7) {
+            val dayName = dayFormat.format(cal.time).take(1)
+            val dateStr = dateFormat.format(cal.time)
+            val isMet = dateStr == lastGoalMetDate || (dateStr == todayStr && isGoalMetToday)
+            list.add(Triple(dayName, dateStr, isMet))
+            cal.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        list
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = WaterSurface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        colors = if (currentStreak > 0) listOf(Color(0xFFFFF3E0), WaterSurface) else listOf(WaterSurfaceVariant, WaterSurface)
+                    )
+                )
+                .padding(18.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(
+                                color = if (currentStreak > 0) Color(0xFFFF6D00) else Color.Gray.copy(alpha = 0.3f),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🔥", fontSize = 24.sp)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "$currentStreak DAY STREAK",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                            color = if (currentStreak > 0) Color(0xFFE65100) else WaterOnSurface.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = if (isGoalMetToday) "Goal completed today! Streak safe 🔥" else "Drink ${(dailyGoalMl - todayConsumedMl).coerceAtLeast(0)} ml to extend streak!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = WaterOnSurface.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = WaterSurfaceVariant
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🏆", fontSize = 12.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "$bestStreak Best",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = WaterOnSurface
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = WaterOnSurface.copy(alpha = 0.08f))
+            Spacer(Modifier.height(12.dp))
+
+            // Weekly Dot Row (Duolingo style)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                calendarDays.forEach { (dayLetter, dateStr, isMet) ->
+                    val isToday = dateStr == todayStr
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = dayLetter,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = if (isToday) WaterPrimary else WaterOnSurface.copy(alpha = 0.5f)
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .background(
+                                    color = when {
+                                        isMet -> Color(0xFFFF6D00)
+                                        isToday -> WaterPrimary.copy(alpha = 0.15f)
+                                        else -> WaterSurfaceVariant
+                                    },
+                                    shape = CircleShape
+                                )
+                                .border(
+                                    width = if (isToday && !isMet) 2.dp else 0.dp,
+                                    color = if (isToday && !isMet) WaterPrimary else Color.Transparent,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isMet) {
+                                Text("🔥", fontSize = 16.sp)
+                            } else if (isToday) {
+                                Text("💧", fontSize = 14.sp)
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(WaterOnSurface.copy(alpha = 0.2f), CircleShape)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Streak Freeze Banner
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFE0F2FE), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🛡️", fontSize = 16.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (streakFreezeCount > 0) "Streak Freeze Active (1 Shield)" else "No Streak Freeze Equipped",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color(0xFF0369A1)
+                    )
+                }
+
+                if (streakFreezeCount == 0) {
+                    TextButton(
+                        onClick = onEquipFreeze,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                    ) {
+                        Text("+ Equip 🛡️", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DashboardTab(
     todayConsumedMl: Int,
     dailyGoalMl: Int,
+    currentStreak: Int,
+    bestStreak: Int,
+    lastGoalMetDate: String,
+    streakFreezeCount: Int,
+    onEquipFreeze: () -> Unit,
     onLogWater: (Int) -> Unit
 ) {
     val progress = (todayConsumedMl.toFloat() / dailyGoalMl.toFloat()).coerceIn(0f, 1f)
@@ -716,6 +998,18 @@ fun DashboardTab(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        item {
+            DuolingoStreakCard(
+                currentStreak = currentStreak,
+                bestStreak = bestStreak,
+                todayConsumedMl = todayConsumedMl,
+                dailyGoalMl = dailyGoalMl,
+                lastGoalMetDate = lastGoalMetDate,
+                streakFreezeCount = streakFreezeCount,
+                onEquipFreeze = onEquipFreeze
+            )
+        }
+
         item {
             // Main Hero Progress Card
             Card(
